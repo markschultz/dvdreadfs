@@ -35,3 +35,10 @@ If you want to modify the IFO file before it's read by the user, use
  -DFIX_IFO to define a function that will fix up the .ifo data.  This
 function will be passed the full contents of every ifo after it is read
 from the dvd but before it's sent back to the user.
+
+
+Patches
+-------
+apply the patches with the following commands
+`patch -i 0001-Remove-read_ahead-caching.patch -l`
+`patch -i 0002-Add-.volume_id-static-file-to-store-ISO-volume-name.patch -l`

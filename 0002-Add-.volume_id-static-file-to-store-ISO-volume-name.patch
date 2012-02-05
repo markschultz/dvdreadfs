@@ -1,0 +1,101 @@
+From 30e3ef757e2aa85d0dbe4234601b84c13b3f8ee6 Mon Sep 17 00:00:00 2001
+From: Nodedog
+Date: Sun, 30 May 2010 17:39:48 +0100
+Subject: [PATCH 2/2] Add .volume_id static file to store ISO volume name
+
+If the ISO volume name is present it will be stored in .volume_id in the root of the fs. Otherwise the file will not be created.
+---
+ dvdreadfs.c |   43 +++++++++++++++++++++++++++++++++++++++++++
+ 1 files changed, 43 insertions(+), 0 deletions(-)
+
+diff --git a/dvdreadfs.c b/dvdreadfs.c
+index 7f242d2..159b33f 100644
+--- a/dvdreadfs.c
++++ b/dvdreadfs.c
+@@ -38,6 +38,7 @@ const off_t   part_size   = (1024*1024*1024) - DVD_VIDEO_LB_LEN;
+ #define IS_VOB(d) ((d) == DVD_READ_TITLE_VOBS || (d) == DVD_READ_MENU_VOBS)
+ #define IS_IFO(d) (!IS_VOB(d))
+ #define READ_AHEAD (1024*1024)*2
++#define VOL_ID_SIZE 1024
+
+ struct file_info {
+    dvd_file_t  *fd;
+@@ -58,6 +59,8 @@ struct mount_info {
+    struct file_info    file[MAX_DOMAIN+1][MAX_TITLE+1];
+         const char              *dvdpath;
+    int         num_open;
++   struct file_info    vol_id_info;
++   char        vol_id[VOL_ID_SIZE+1];
+ };
+
+ /* Eventually make this "per-mount" instead of global */
+@@ -160,6 +163,18 @@ static inline int open_dvd(struct mount_info *mi) {
+
+     fprintf(stderr, "Dvdopen(%s) worked\n", mi->dvdpath);
+
++   memset(mi->vol_id,0,VOL_ID_SIZE+1);
++   mi->vol_id_info.fd=0;
++   if (DVDISOVolumeInfo(mi->dvd, mi->vol_id, VOL_ID_SIZE, NULL,
++                         0) > -1) {
++       mi->vol_id_info.len=strlen(mi->vol_id);
++       fprintf(stderr, "Dvdopen(%s) : Volume id (%s)\n", mi->dvdpath, mi->vol_id);
++   }
++   else {
++       mi->vol_id_info.len=0;
++       fprintf(stderr, "Dvdopen(%s) : Unable to get volume id\n", mi->dvdpath);
++   }
++
+     /* Open all the files and determine number of titles. */
+     done = 0;
+     for (title = 0; !done && title <= MAX_TITLE; ++title) {
+@@ -277,6 +292,11 @@ static int fs_getattr(const char *name, struct stat *stbuf)
+        stbuf->st_nlink = 2;
+        stbuf->st_size = 512;
+    }
++   else if (strcmp(name , ".volume_id") == 0) {
++       stbuf->st_mode = 0100444;
++       stbuf->st_nlink = 1;
++       stbuf->st_size = mi.vol_id_info.len;
++   }
+    else {
+        res = -ENOENT;
+    }
+@@ -313,6 +333,10 @@ static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+     filler(buf, "..", NULL, 0);
+
+     if (strcmp(path, "/") == 0) {
++       /* Dummy file for volume id */
++       if(mi.vol_id_info.len>0) {
++           filler(buf, ".volume_id", NULL ,0);
++       }
+         filler(buf, "VIDEO_TS", NULL, 0);
+     } else if (strcmp(path, "/VIDEO_TS") == 0) {
+         for (title = 0; title <= mi.num_title; ++title) {
+@@ -387,6 +411,25 @@ static int fs_open(const char *name, struct fuse_file_info *fi)
+    }
+    return 0;
+     }
++   else {
++       while (*name == '/')
++           ++name;
++       if (strcmp(name , ".volume_id") == 0) {
++           fi->fh = xfi;
++
++           xfi->cache = NULL;
++           xfi->cache_len = 0;
++           xfi->cache_off = 0;
++
++           if(xfi->cache = malloc(VOL_ID_SIZE+1)) {
++               xfi->fi=&mi.vol_id_info;
++               xfi->fi->fd=-1; //read will not work unless fd is set
++               memcpy(xfi->cache,mi.vol_id,VOL_ID_SIZE+1);
++               fprintf(stderr,"%s\n",xfi->cache);
++               return 0;
++           }
++       }
++   }
+
+     /* Failed so release our reference to dvd */
+     dec_refcnt(&mi);
+--
+1.6.4.4

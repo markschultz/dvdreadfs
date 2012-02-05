@@ -1,0 +1,38 @@
+From 08160896255907dddb0425c19baff3d8710b71f9 Mon Sep 17 00:00:00 2001
+From: Nodedog
+Date: Tue, 25 May 2010 13:22:50 +0100
+Subject: [PATCH 1/2] Remove read_ahead caching
+
+---
+ dvdreadfs.c |    9 +++++++++
+ 1 files changed, 9 insertions(+), 0 deletions(-)
+
+diff --git a/dvdreadfs.c b/dvdreadfs.c
+index 01a1895..7f242d2 100644
+--- a/dvdreadfs.c
++++ b/dvdreadfs.c
+@@ -423,6 +423,14 @@ static int fs_read(const char *path, char *buf, size_t count, off_t offset,
+    bk_off = offset / DVD_VIDEO_LB_LEN;
+    bk_cnt = count / DVD_VIDEO_LB_LEN;
+
++   res = DVDReadBlocks(xfi->fi->fd, bk_off, bk_cnt, (unsigned char*)buf);
++   if (res > 0)
++       res *= DVD_VIDEO_LB_LEN;
++
++   //Caching can cause problems with slow drive if READ_AHEAD too high
++   //have also not seen an improvement in performance from using it
++   //Therefore disable and just do read as requested
++#if 0
+    /* Is this offset/count contained wholly in the cache? */
+    if (xfi->cache_off <= offset && offset+count <= xfi->cache_off+xfi->cache_len) {
+        /* Yes, wholly in cache, so use cache only */
+@@ -448,6 +456,7 @@ static int fs_read(const char *path, char *buf, size_t count, off_t offset,
+        }
+        }
+    }
++#endif
+     } else {
+    if (xfi->cache) {
+        if (offset >= xfi->fi->len || offset < 0) {
+--
+1.6.4.4
