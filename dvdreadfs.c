@@ -38,6 +38,7 @@ const off_t	part_size	= (1024*1024*1024) - DVD_VIDEO_LB_LEN;
 #define IS_VOB(d) ((d) == DVD_READ_TITLE_VOBS || (d) == DVD_READ_MENU_VOBS)
 #define IS_IFO(d) (!IS_VOB(d))
 #define READ_AHEAD (1024*1024)*2
+#define VOL_ID_SIZE 1024
 
 struct file_info {
 	dvd_file_t	*fd;
@@ -58,6 +59,8 @@ struct mount_info {
 	struct file_info	file[MAX_DOMAIN+1][MAX_TITLE+1];
         const char              *dvdpath;
 	int			num_open;
+   struct file_info    vol_id_info;
+   char        vol_id[VOL_ID_SIZE+1];
 };
 
 /* Eventually make this "per-mount" instead of global */
@@ -159,6 +162,18 @@ static inline int open_dvd(struct mount_info *mi) {
     file_time++;
 
     fprintf(stderr, "Dvdopen(%s) worked\n", mi->dvdpath);
+
+   memset(mi->vol_id,0,VOL_ID_SIZE+1);
+   mi->vol_id_info.fd=0;
+   if (DVDISOVolumeInfo(mi->dvd, mi->vol_id, VOL_ID_SIZE, NULL,
+                         0) > -1) {
+       mi->vol_id_info.len=strlen(mi->vol_id);
+       fprintf(stderr, "Dvdopen(%s) : Volume id (%s)\n", mi->dvdpath, mi->vol_id);
+   }
+   else {
+       mi->vol_id_info.len=0;
+       fprintf(stderr, "Dvdopen(%s) : Unable to get volume id\n", mi->dvdpath);
+   }
 
     /* Open all the files and determine number of titles. */
     done = 0;
@@ -277,6 +292,11 @@ static int fs_getattr(const char *name, struct stat *stbuf)
 	    stbuf->st_nlink = 2;
 	    stbuf->st_size = 512;
 	}
+   else if (strcmp(name , ".volume_id") == 0) {
+       stbuf->st_mode = 0100444;
+       stbuf->st_nlink = 1;
+       stbuf->st_size = mi.vol_id_info.len;
+   }
 	else {
 	    res = -ENOENT;
 	}
@@ -313,6 +333,10 @@ static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     filler(buf, "..", NULL, 0);
 
     if (strcmp(path, "/") == 0) {
+       /* Dummy file for volume id */
+       if(mi.vol_id_info.len>0) {
+           filler(buf, ".volume_id", NULL ,0);
+       }
         filler(buf, "VIDEO_TS", NULL, 0);
     } else if (strcmp(path, "/VIDEO_TS") == 0) {
         for (title = 0; title <= mi.num_title; ++title) {
@@ -387,6 +411,25 @@ static int fs_open(const char *name, struct fuse_file_info *fi)
 	}
 	return 0;
     }
+   else {
+       while (*name == '/')
+           ++name;
+       if (strcmp(name , ".volume_id") == 0) {
+           fi->fh = xfi;
+
+           xfi->cache = NULL;
+           xfi->cache_len = 0;
+           xfi->cache_off = 0;
+
+           if(xfi->cache = malloc(VOL_ID_SIZE+1)) {
+               xfi->fi=&mi.vol_id_info;
+               xfi->fi->fd=-1; //read will not work unless fd is set
+               memcpy(xfi->cache,mi.vol_id,VOL_ID_SIZE+1);
+               fprintf(stderr,"%s\n",xfi->cache);
+               return 0;
+           }
+       }
+   }
 
     /* Failed so release our reference to dvd */
     dec_refcnt(&mi);
@@ -423,6 +466,14 @@ static int fs_read(const char *path, char *buf, size_t count, off_t offset,
 	bk_off = offset / DVD_VIDEO_LB_LEN;
 	bk_cnt = count / DVD_VIDEO_LB_LEN;
 	
+   res = DVDReadBlocks(xfi->fi->fd, bk_off, bk_cnt, (unsigned char*)buf);
+   if (res > 0)
+       res *= DVD_VIDEO_LB_LEN;
+
+   //Caching can cause problems with slow drive if READ_AHEAD too high
+   //have also not seen an improvement in performance from using it
+   //Therefore disable and just do read as requested
+#if 0
 	/* Is this offset/count contained wholly in the cache? */
 	if (xfi->cache_off <= offset && offset+count <= xfi->cache_off+xfi->cache_len) {
 	    /* Yes, wholly in cache, so use cache only */
@@ -448,6 +499,7 @@ static int fs_read(const char *path, char *buf, size_t count, off_t offset,
 		}
 	    }
 	}
+#endif
     } else {
 	if (xfi->cache) {
 	    if (offset >= xfi->fi->len || offset < 0) {
