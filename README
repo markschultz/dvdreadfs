@@ -1,0 +1,37 @@
+README for dvdreadfs - mount dvd's using libdvdread
+Sam Horrocks (sam@daemoninc.com) 2/11/2007
+
+Description
+-----------
+Dvdreadfs is useful for making video dvds readable by any application
+not just those that are linked already with libdvdread.  For example, I
+use dvdreadfs to mount my dvd drive and then share that mount point over samba
+to other computers.
+
+Dvdreadfs will only keep the DVD device open while someone is using files in
+its mount point so it's pretty safe to keep it mounted all the time.
+
+
+Compiling and Installing
+------------------------
+You'll need fuse and the fuse-devel packages.  Once you have those, compile
+dvdreadfs with "make".  To install the binary in /usr/bin do "make install".
+
+
+Configuration
+-------------
+To make the files readable by everyone add to /etc/fuse.conf:
+	user_allow_other
+
+You can create a dvdreadfs mount using an fstab entry like:
+	dvdreadfs#/dev/hdd	/mnt/dvd		fuse	ro,kernel_cache,allow_other 0 0
+
+You may want to change /dev/hdd to your dvd device (/dev/dvd for example).
+
+
+Advanced
+--------
+If you want to modify the IFO file before it's read by the user, use
+ -DFIX_IFO to define a function that will fix up the .ifo data.  This
+function will be passed the full contents of every ifo after it is read
+from the dvd but before it's sent back to the user.
