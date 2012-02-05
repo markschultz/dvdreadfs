@@ -124,6 +124,10 @@ static inline int get_title_domain
 static int find_file
     (struct mount_info *mi, const char *name, struct ext_file_info *xfi)
 {
+    if (strstr(name, "/VIDEO_TS/") == name) {
+       name += 9;
+    }
+
     if (!get_title_domain(name, &(xfi->title), &(xfi->domain), &(xfi->partnum)))
 	return 0;
     if (xfi->title > mi->num_title)
@@ -135,6 +139,7 @@ static int find_file
 	if (PART_TO_OFFSET(xfi->partnum, part_size) > xfi->fi->len)
 	    return 0;
     }
+
     return 1;
 }
 
@@ -268,9 +273,9 @@ static int fs_getattr(const char *name, struct stat *stbuf)
 	    stbuf->st_size = 512;
 	}
 	else if (strcmp(name, "VIDEO_TS") == 0) {
-	    stbuf->st_mode = 0120777;
-	    stbuf->st_nlink = 1;
-	    stbuf->st_size = 1;
+	    stbuf->st_mode = 040555;
+	    stbuf->st_nlink = 2;
+	    stbuf->st_size = 512;
 	}
 	else {
 	    res = -ENOENT;
@@ -307,36 +312,40 @@ static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     filler(buf, ".", NULL, 0);
     filler(buf, "..", NULL, 0);
 
-    for (title = 0; title <= mi.num_title; ++title) {
-	for (domain = MIN_DOMAIN; domain <= MAX_DOMAIN; ++domain) {
-	    char name[15];
+    if (strcmp(path, "/") == 0) {
+        filler(buf, "VIDEO_TS", NULL, 0);
+    } else if (strcmp(path, "/VIDEO_TS") == 0) {
+        for (title = 0; title <= mi.num_title; ++title) {
+	    for (domain = MIN_DOMAIN; domain <= MAX_DOMAIN; ++domain) {
+	        char name[15];
 
-	    if (title > 0) {
-		sprintf(name, "VTS_%02d_0.VOB", title);
-	    } else {
-		if (domain == DVD_READ_TITLE_VOBS)
-			continue;
-		strcpy(name, "VIDEO_TS.VOB");
+	        if (title > 0) {
+		    sprintf(name, "VTS_%02d_0.VOB", title);
+	        } else {
+		    if (domain == DVD_READ_TITLE_VOBS)
+		            continue;
+		    strcpy(name, "VIDEO_TS.VOB");
+	        }
+	        if (domain == DVD_READ_TITLE_VOBS) {
+		    int partnum;
+		    for (partnum = 1; partnum < 10; ++partnum) {
+		        name[7] = partnum + '0';
+		        if (!add_to_dir(buf, filler, name))
+			    break;
+		    }
+	        } else {
+		    switch(domain) {
+		    case DVD_READ_INFO_BACKUP_FILE:
+		        strcpy(name+9, "BUP");
+		        break;
+		    case DVD_READ_INFO_FILE:
+		        strcpy(name+9, "IFO");
+		        break;
+		    }
+		    (void) add_to_dir(buf, filler, name);
+	        }
 	    }
-	    if (domain == DVD_READ_TITLE_VOBS) {
-		int partnum;
-		for (partnum = 1; partnum < 10; ++partnum) {
-		    name[7] = partnum + '0';
-		    if (!add_to_dir(buf, filler, name))
-			break;
-		}
-	    } else {
-		switch(domain) {
-		case DVD_READ_INFO_BACKUP_FILE:
-		    strcpy(name+9, "BUP");
-		    break;
-		case DVD_READ_INFO_FILE:
-		    strcpy(name+9, "IFO");
-		    break;
-		}
-		(void) add_to_dir(buf, filler, name);
-	    }
-	}
+        }
     }
 
     /* Release our reference to dvd */
@@ -498,5 +507,5 @@ int main(int argc, char *argv[])
 	argv++;
 	argc--;
     }
-    return fuse_main(argc, argv, &fs_oper);
+    return fuse_main(argc, argv, &fs_oper, NULL);
 }
